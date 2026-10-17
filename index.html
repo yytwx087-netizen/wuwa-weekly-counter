@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1d29" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
+  <meta name="description" content="鸣潮周本计数器：统计各周本的进本、领奖、COST4 声骸次数，按周归档，本地存储。">
+  <title>鸣潮周本计数器</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css?rev=3.5">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">⚔️</span>
+      <div>
+        <h1>鸣潮周本计数器</h1>
+        <p id="week-label" class="week-label">—</p>
+      </div>
+    </div>
+    <button id="btn-theme" class="icon-btn" type="button" title="切换深浅色">🌙</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-view="week"    role="tab">本周</button>
+    <button class="tab"       data-view="history"  role="tab">历史</button>
+    <button class="tab"       data-view="bosses"   role="tab">周本</button>
+    <button class="tab"       data-view="settings" role="tab">设置</button>
+  </nav>
+
+  <main>
+    <!-- ═══════════ 本周视图 ═══════════ -->
+    <section id="view-week" class="view">
+      <div class="week-banner" id="week-banner">
+        <div class="banner-left">
+          <strong id="week-id">—</strong>
+          <span id="week-range" class="muted"></span>
+        </div>
+        <div class="claim-progress" id="claim-progress">
+          <span class="claim-label">本周领奖（全周本共享）</span>
+          <span class="claim-pips" id="claim-pips"></span>
+          <span class="claim-text" id="claim-text">—</span>
+          <span id="claim-badge"></span>
+        </div>
+        <span id="reset-countdown" class="muted countdown"></span>
+      </div>
+
+      <div id="edit-hint" class="edit-hint" hidden>
+        <span>✎ <b>编辑模式</b>：直接修改各周本「本周」的三个数字（会同步累计）</span>
+        <button id="btn-edit-done" class="btn btn-primary btn-sm" type="button">完成</button>
+      </div>
+
+      <div id="boss-cards" class="cards"><!-- js 渲染 --></div>
+
+      <div class="toolbar">
+        <button id="btn-edit" class="btn btn-ghost" type="button" title="或长按任意卡片进入">✎ 编辑本周数据</button>
+        <button id="btn-undo" class="btn btn-ghost" type="button" disabled>↩ 撤销上一步</button>
+      </div>
+      <p class="muted small center-note">长按任意卡片也可进入编辑模式</p>
+    </section>
+
+    <!-- ═══════════ 历史视图 ═══════════ -->
+    <section id="view-history" class="view" hidden>
+      <div id="history-totals" class="cards"><!-- js 渲染 --></div>
+
+      <h2 class="section-title">每周进本趋势</h2>
+      <div class="chart-card" id="chart-card">
+        <canvas id="trend-chart" height="220" aria-label="每周进本次数趋势图"></canvas>
+        <div id="chart-legend" class="chart-legend"></div>
+      </div>
+
+      <h2 class="section-title">每周明细</h2>
+      <div class="table-wrap">
+        <table id="history-table"><!-- js 渲染 --></table>
+      </div>
+      <p class="muted small">领奖上限为「每周全部周本共享 3 次」，进度见本周页横幅；历史周不受当前上限影响。</p>
+    </section>
+
+    <!-- ═══════════ 周本管理 ═══════════ -->
+    <section id="view-bosses" class="view" hidden>
+      <h2 class="section-title">新增周本</h2>
+      <form id="boss-form" class="boss-form">
+        <label>周本名称
+          <input id="boss-name" required maxlength="40" placeholder="例：苍冥绝章·战歌重奏">
+        </label>
+        <label>声骸名（该周本掉落的 COST4 声骸，可空）
+          <input id="boss-echo" maxlength="40" placeholder="例：共鸣回响·天演溯心">
+        </label>
+        <label>声骸名 2（双声骸周本可再填一个，可空）
+          <input id="boss-echo2" maxlength="40" placeholder="例：共鸣回响·达妮娅">
+        </label>
+        <label>技能升级材料（每次领奖掉落 ×3，可空）
+          <input id="boss-material" maxlength="40" placeholder="例：演轮残蜕">
+        </label>
+        <label>别名（逗号分隔，可空）
+          <input id="boss-aliases" maxlength="60" placeholder="战歌重奏C, 周本C">
+        </label>
+
+        <div class="field-block">
+          <span class="field-label">图标</span>
+          <div class="icon-field">
+            <div class="icon-preview" id="new-icon-preview">🎯</div>
+            <div class="icon-controls">
+              <label>emoji（可空）
+                <input id="boss-emoji" maxlength="4" placeholder="🎼">
+              </label>
+              <div class="icon-buttons">
+                <button type="button" class="btn mini-btn" id="btn-new-icon">🖼 选择本地图片</button>
+                <button type="button" class="btn mini-btn" id="btn-new-icon-clear" hidden>清除图片</button>
+              </div>
+            </div>
+          </div>
+          <p class="muted small icon-hint">优先级：<b>上传的图片</b> &gt; 内置图标 &gt; emoji。图片自动居中裁方并压到 256×256 存进数据，随导出/导入一起迁移。</p>
+        </div>
+        <input type="file" id="new-icon-file" accept="image/*" hidden>
+
+        <button class="btn btn-primary btn-lg" type="submit">＋ 添加周本</button>
+      </form>
+
+      <h2 class="section-title">已有周本</h2>
+      <div id="boss-list" class="boss-list"><!-- js 渲染 --></div>
+      <p class="muted small">周本可停用但不会被删除 —— 历史统计依赖其 ID。ID 一旦创建不可更改。</p>
+    </section>
+
+    <!-- ═══════════ 设置 ═══════════ -->
+    <section id="view-settings" class="view" hidden>
+      <h2 class="section-title">周重置规则</h2>
+      <div class="form-grid">
+        <label>每周重置日
+          <select id="set-weekday">
+            <option value="1">周一</option><option value="2">周二</option>
+            <option value="3">周三</option><option value="4">周四</option>
+            <option value="5">周五</option><option value="6">周六</option>
+            <option value="0">周日</option>
+          </select>
+        </label>
+        <label>重置时刻（时）
+          <input id="set-hour" type="number" min="0" max="23" step="1">
+        </label>
+        <label>每周领奖上限 · 所有周本共享（0 = 关闭提醒）
+          <input id="set-limit" type="number" min="0" max="99" step="1">
+        </label>
+      </div>
+      <p class="muted small">默认周一 04:00（国服 UTC+8），周界按本机时区判断。<br>
+        ⚠ 领奖 3 次/周为<b>全部周本合计共享</b>（如 A×2 + B×1）。</p>
+
+      <h2 class="section-title">云同步 · GitHub Gist</h2>
+      <div class="sync-card">
+        <label>GitHub Token（fine-grained 或 classic，需 gist 权限；<b>只存本机</b>，不随导出外泄）
+          <input id="sync-token" type="password" autocomplete="off" placeholder="ghp_… / github_pat_…">
+        </label>
+        <label>Gist ID（留空则首次「上传」自动创建私有 Gist；也可粘贴已有的）
+          <input id="sync-gist" autocomplete="off" placeholder="例如 1a2b3c4d5e6f7890abcdef1234567890">
+        </label>
+        <div class="btn-row">
+          <button id="btn-sync-up"    class="btn" type="button">⬆ 上传到云端</button>
+          <button id="btn-sync-down"  class="btn" type="button">⬇ 从云端下载</button>
+          <button id="btn-sync-merge" class="btn" type="button">⇅ 双向合并</button>
+        </div>
+        <p class="muted small" id="sync-status">未配置 · 上次同步：—</p>
+        <p class="muted small">
+          · 上传 = 用本机数据覆盖云端；下载 = 用云端覆盖本机（下载前自动备份当前数据）；
+          <b>双向合并</b> = 按周、按周本取两边较大的计数（保守策略，撤销过的减少量不会被同步回退）。<br>
+          · Token 创建：GitHub → Settings → Developer settings → Personal access tokens →
+          <b>Tokens (classic)</b> → 勾选 <code>gist</code> 权限即可，别给其他权限。<br>
+          · 数据只在你自己的私有 Gist 里，应用本身无服务器。
+        </p>
+      </div>
+
+      <h2 class="section-title">数据</h2>
+      <div class="btn-row">
+        <button id="btn-export" class="btn" type="button">⬇ 导出 JSON</button>
+        <button id="btn-import" class="btn" type="button">⬆ 导入 JSON</button>
+        <button id="btn-clear"  class="btn btn-danger" type="button">🗑 清空全部数据</button>
+      </div>
+      <input id="file-import" type="file" accept="application/json,.json" hidden>
+      <p class="muted small">导入为覆盖式：应用前会自动先下载一份当前数据的备份。<br>
+        数据默认只存在本机浏览器里；启用云同步后才会写入你自己的私有 Gist。</p>
+
+      <h2 class="section-title">关于</h2>
+      <p class="muted small">
+        v2.0 · 口径与数据结构见项目 <code>spec/</code>（rules.md / schema.json）。<br>
+        计数口径：<b>进本</b> 打一次 +1；<b>领奖</b> 领一次 +1（全周本每周共享 3 次）；
+        <b>声骸</b> 掉落对应 COST4 声骸才 +1。<br>
+        这是玩家自制工具，与库洛游戏无关。
+      </p>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js?rev=3.6"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+    "note":  "内置周本图标清单：bossId -\u003e 文件名。源图放 artwork/boss-icons/，处理后落本目录。",
+    "icons":  {
+                  "void-birth-seed-battle-song":  "void-birth-seed-battle-song.png",
+                  "scarlet-curtain-battle-song":  "scarlet-curtain-battle-song.png",
+                  "fallen-guilt-hall-battle-song":  "fallen-guilt-hall-battle-song.png",
+                  "lost-star-gate-battle-song":  "lost-star-gate-battle-song.png",
+                  "seq-principle-battle-song":  "seq-principle-battle-song.png",
+                  "crownless-colossus-battle-song":  "crownless-colossus-battle-song.png",
+                  "fate-fragment-wheel-battle-song":  "fate-fragment-wheel-battle-song.png",
+                  "ember-apocalypse-battle-song":  "ember-apocalypse-battle-song.png",
+                  "bygone-lament-bell-battle-song":  "bygone-lament-bell-battle-song.png",
+                  "destiny-duel-battle-song":  "destiny-duel-battle-song.png"
+              }
+}

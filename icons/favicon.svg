@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a304a"/>
+      <stop offset="1" stop-color="#161923"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#bg)"/>
+  <rect x="2" y="51" width="60" height="11" rx="4" fill="#6d87ff" opacity="0.55"/>
+  <text x="32" y="35" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="34"
+        font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">周</text>
+</svg>
