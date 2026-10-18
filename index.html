@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?rev=3.13">
+  <link rel="stylesheet" href="style.css?rev=3.18">
 </head>
 <body>
   <header class="app-header">
@@ -76,6 +76,12 @@
       <div class="table-wrap">
         <table id="history-table"><!-- js 渲染 --></table>
       </div>
+      <div class="table-scroll" id="table-scroll" hidden>
+        <button class="scroll-btn" id="scroll-left" type="button" aria-label="向左滚动">‹</button>
+        <input type="range" id="table-range" class="hscroll" min="0" max="0" value="0" step="1" aria-label="横向滚动查看周数据">
+        <button class="scroll-btn" id="scroll-right" type="button" aria-label="向右滚动">›</button>
+      </div>
+      <p class="muted small table-scroll-hint" id="table-scroll-hint" hidden>← 拖动滑块（或直接在表格上左右滑动）查看全部周 →</p>
       <p class="muted small">领奖上限为「每周全部周本共享 3 次」，进度见本周页横幅；历史周不受当前上限影响。</p>
     </section>
 
@@ -201,6 +207,6 @@
   </main>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="app.js?rev=3.13"></script>
+  <script src="app.js?rev=3.18"></script>
 </body>
 </html>
