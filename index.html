@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?rev=3.5">
+  <link rel="stylesheet" href="style.css?rev=3.13">
 </head>
 <body>
   <header class="app-header">
@@ -155,6 +155,13 @@
         <label>Gist ID（留空则首次「上传」自动创建私有 Gist；也可粘贴已有的）
           <input id="sync-gist" autocomplete="off" placeholder="例如 1a2b3c4d5e6f7890abcdef1234567890">
         </label>
+        <label>同步口令（<b>强烈建议设置</b>：设置后云端只存密文；各设备需填同一口令）
+          <input id="sync-pass" type="password" autocomplete="off" placeholder="例如自己记得住的一句话">
+        </label>
+        <label class="sync-auto-row">
+          <input id="sync-auto" type="checkbox">
+          <span>自动同步（打开 App 时从云端合并；计数后约 4 秒自动上传）</span>
+        </label>
         <div class="btn-row">
           <button id="btn-sync-up"    class="btn" type="button">⬆ 上传到云端</button>
           <button id="btn-sync-down"  class="btn" type="button">⬇ 从云端下载</button>
@@ -164,9 +171,11 @@
         <p class="muted small">
           · 上传 = 用本机数据覆盖云端；下载 = 用云端覆盖本机（下载前自动备份当前数据）；
           <b>双向合并</b> = 按周、按周本取两边较大的计数（保守策略，撤销过的减少量不会被同步回退）。<br>
+          · <b>加密</b>：填了口令就用 AES-GCM 加密后再上传（PBKDF2 派生密钥），云端只有密文；
+          Gist 的"私有"并不真正隔离访问，<b>强烈建议设置口令</b>。口令丢了云端数据无法解密，请另外保留导出的 JSON 备份。<br>
           · Token 创建：GitHub → Settings → Developer settings → Personal access tokens →
           <b>Tokens (classic)</b> → 勾选 <code>gist</code> 权限即可，别给其他权限。<br>
-          · 数据只在你自己的私有 Gist 里，应用本身无服务器。
+          · 数据只在你自己的 Gist 里，应用本身无服务器。
         </p>
       </div>
 
@@ -182,7 +191,8 @@
 
       <h2 class="section-title">关于</h2>
       <p class="muted small">
-        v2.0 · 口径与数据结构见项目 <code>spec/</code>（rules.md / schema.json）。<br>
+        <span id="about-version">版本加载中…</span><br>
+        口径与数据结构见项目 <code>spec/</code>（rules.md / schema.json）。<br>
         计数口径：<b>进本</b> 打一次 +1；<b>领奖</b> 领一次 +1（全周本每周共享 3 次）；
         <b>声骸</b> 掉落对应 COST4 声骸才 +1。<br>
         这是玩家自制工具，与库洛游戏无关。
@@ -191,6 +201,6 @@
   </main>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="app.js?rev=3.6"></script>
+  <script src="app.js?rev=3.13"></script>
 </body>
 </html>
