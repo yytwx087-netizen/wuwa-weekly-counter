@@ -432,3 +432,65 @@ html.native .app-header {
 .sync-auto-row input[type="checkbox"] {
   width: 20px; height: 20px; margin: 0; flex-shrink: 0; accent-color: var(--accent);
 }
+/* ── 周本列表：信息区 + 操作区（徽章单独一行，编辑/启停同一行） ── */
+.boss-main { display: flex; align-items: center; gap: 16px; flex: 1 1 260px; min-width: 0; }
+.boss-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin-left: auto; }
+.boss-btns { display: flex; gap: 10px; }
+.boss-btns .mini-btn { min-width: 96px; }
+
+/* ── 明细表横向滚动控制条（滑块 + 左右按钮） ── */
+.table-scroll { display: flex; align-items: center; gap: 10px; margin: 10px 2px 0; }
+.table-scroll[hidden] { display: none; }
+.table-scroll .scroll-btn {
+  width: 38px; height: 38px; flex: 0 0 auto; border-radius: 11px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font-size: 20px; line-height: 1; cursor: pointer; padding: 0;
+}
+.table-scroll .scroll-btn:active { transform: scale(.94); }
+.hscroll {
+  flex: 1; -webkit-appearance: none; appearance: none; height: 8px; border-radius: 999px;
+  background: var(--surface-2); outline: none; padding: 0; border: 0; margin: 0;
+}
+.hscroll::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--surface); cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+.hscroll::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+  border: 3px solid var(--surface); cursor: pointer;
+}
+.table-scroll-hint { text-align: center; margin: 8px 0 0; }
+
+@media (max-width: 560px) {
+  /* 周本列表：窄屏下信息与操作上下排列，编辑/启停仍并排 */
+  .boss-item { flex-direction: column; align-items: stretch; gap: 12px; }
+  /* 注意：竖排时 flex-basis 作用于高度，必须去掉 260px 的基准，否则卡片会被撑高一大截 */
+  .boss-main { flex: 0 0 auto; width: 100%; }
+  .boss-actions { width: 100%; align-items: stretch; margin-left: 0; }
+  .boss-actions .badge { align-self: flex-start; }
+  .boss-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .boss-btns .mini-btn { min-width: 0; }
+  /* 手机：首列保持吸顶（周本名始终可见），但压窄到 150px，留出更大可拖区域 */
+  #history-table th.row-head { position: sticky; left: 0; min-width: 150px; max-width: 150px; }
+  #history-table .row-name { font-size: 14px; }
+  .table-wrap { -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+  .table-wrap::-webkit-scrollbar { height: 6px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+}
+/* 明细表数值的三元组包装（桌面横排；手机竖排） */
+#history-table td.num .tri { display: inline; }
+
+@media (max-width: 560px) {
+  /* 手机：每个数值竖排成三行（0进本 / 0领奖 / 0声骸），列宽大幅收窄，一屏可读 */
+  #history-table td.num { white-space: normal; line-height: 1.5; }
+  #history-table td.num .tri { display: block; }
+  #history-table td.num .sep { display: none; }
+  #history-table td.num .unit { margin: 0 0 0 2px; font-size: 12px; }
+  #history-table td.num b { font-size: 15px; }
+  #history-table th.row-head { min-width: 132px; max-width: 132px; }
+  #history-table th.week-col { min-width: 74px; }
+  #history-table td.num, #history-table thead th { padding: 10px 10px; }
+  #history-table .row-name { font-size: 13px; }
+  #history-table .row-icon { width: 30px; height: 30px; border-radius: 9px; margin-right: 6px; }
+}
