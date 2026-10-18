@@ -1,10 +1,10 @@
 /* 鸣潮周本计数器 — Service Worker（离线可用） */
-const CACHE = "wuwa-weekly-counter-v3.6";
+const CACHE = "wuwa-weekly-counter-v3.13";
 const ASSETS = [
   "./",
   "./index.html",
-  "./style.css?rev=3.5",
-  "./app.js?rev=3.6",
+  "./style.css?rev=3.13",
+  "./app.js?rev=3.13",
   "./manifest.webmanifest",
   "./assets/boss/manifest.json",
   "./icons/favicon.svg",
