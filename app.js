@@ -20,8 +20,8 @@ const CHART_COLORS = ["#6d87ff", "#3ddc97", "#f0b357", "#e5484d", "#9d6dff", "#2
 
 const DEFAULT_BOSSES = [
   // 主力周本（enabled）；material = 每次领奖掉落的技能升级材料（×3/次），来自《周本清单1017.xls》
-  { id: "seq-principle-battle-song",    name: "定序诸演之律·战歌重奏", aliases: ["战歌重奏A"], emoji: "🎼", echoName: "共鸣回响·天演溯心",     material: "演轮残蜕",     enabled: true },
-  { id: "ember-apocalypse-battle-song", name: "烬夜天启之章·战歌重奏", aliases: ["战歌重奏B"], emoji: "🌌", echoName: "共鸣回响·鸣式·利维亚坦", material: "深洋的咒诅",   enabled: true },
+  { id: "seq-principle-battle-song",    name: "定序诸演之律·战歌重奏", aliases: [], emoji: "🎼", echoName: "共鸣回响·天演溯心",     material: "演轮残蜕",     enabled: true },
+  { id: "ember-apocalypse-battle-song", name: "烬夜天启之章·战歌重奏", aliases: [], emoji: "🌌", echoName: "共鸣回响·鸣式·利维亚坦", material: "深洋的咒诅",   enabled: true },
   // 后续周本（预置停用：内置图标已随包，开打前在「周本」页点「启用」即可）
   { id: "fate-fragment-wheel-battle-song",  name: "命途断章之轮·战歌重奏", aliases: [], emoji: "🎯", echoName: "共鸣回响·芙露德莉斯",       material: "鸢尾盛开之日", enabled: false },
   { id: "fallen-guilt-hall-battle-song",    name: "失坠困咎之庭·战歌重奏", aliases: [], emoji: "🎯", echoName: "千傀重楼",                   material: "天衢琉璃之心", enabled: false },
@@ -65,6 +65,11 @@ function applyNameFixups(list) {
   let n = 0;
   for (const b of list) {
     if (NAME_FIXUPS[b.name]) { b.name = NAME_FIXUPS[b.name]; n++; }
+    // 清理早期内置的内部代号别名（战歌重奏A / 战歌重奏B），用户自定义别名保留
+    if (Array.isArray(b.aliases)) {
+      const kept = b.aliases.filter(a => !/^战歌重奏[AB]$/.test(String(a).trim()));
+      if (kept.length !== b.aliases.length) { b.aliases = kept; n++; }
+    }
   }
   return n;
 }
@@ -1189,6 +1194,37 @@ function renderHistory() {
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
+  initTableScroll();
+}
+
+/** 明细表横向滚动控制条：手机/窄屏下列多、表格超宽，用滑块 + 左右按钮替代"盲拖" */
+function initTableScroll() {
+  const table = $("#history-table");
+  if (!table) return;
+  const wrap = table.closest(".table-wrap");
+  const bar = $("#table-scroll");
+  const range = $("#table-range");
+  const hint = $("#table-scroll-hint");
+  if (!wrap || !bar || !range) return;
+
+  const max = Math.max(0, table.scrollWidth - wrap.clientWidth);
+  const need = max > 4;
+  bar.hidden = !need;
+  if (hint) hint.hidden = !need;
+
+  range.max = String(Math.max(0, max));
+  range.value = String(Math.min(max, Math.max(0, wrap.scrollLeft)));
+
+  if (!wrap.dataset.scrollBound) {
+    wrap.dataset.scrollBound = "1";
+    wrap.addEventListener("scroll", () => {
+      range.value = String(wrap.scrollLeft);
+    }, { passive: true });
+    range.addEventListener("input", () => { wrap.scrollLeft = Number(range.value); });
+    const left = $("#scroll-left"), right = $("#scroll-right");
+    if (left) left.onclick = () => wrap.scrollBy({ left: -Math.round(wrap.clientWidth * 0.7), behavior: "smooth" });
+    if (right) right.onclick = () => wrap.scrollBy({ left: Math.round(wrap.clientWidth * 0.7), behavior: "smooth" });
+  }
 }
 
 /** 明细表单元格：三个数字带单位标注（0进本 / 0领奖 / 0声骸），缺失显示「–」 */
@@ -1201,9 +1237,11 @@ function statCell(v, cls) {
     [v.echoes || 0, "声骸", "h"],
   ];
   tri.forEach(([n, unit, kind], i) => {
-    if (i) td.appendChild(el("span", "sep", "/"));
-    td.appendChild(el("b", "v-" + kind, String(n)));
-    td.appendChild(el("span", "unit", unit));
+    const seg = el("span", "tri");
+    seg.appendChild(el("b", "v-" + kind, String(n)));
+    seg.appendChild(el("span", "unit", unit));
+    td.appendChild(seg);
+    if (i < 2) td.appendChild(el("span", "sep", "/"));
   });
   return td;
 }
@@ -1432,7 +1470,8 @@ function renderBossList() {
       continue;
     }
 
-    item.appendChild(iconNode(boss));
+    const main = el("div", "boss-main");
+    main.appendChild(iconNode(boss));
 
     const grow = el("div", "grow");
     grow.appendChild(el("div", "name", boss.name));
@@ -1447,19 +1486,25 @@ function renderBossList() {
       }
     }
     grow.appendChild(echoTag);
-    item.appendChild(grow);
+    main.appendChild(grow);
+    item.appendChild(main);
 
+    // 操作区：计数徽章单独一行（如有），「编辑 + 启用/停用」始终同一行
+    const actions = el("div", "boss-actions");
     const t = state.totals[boss.id];
-    if (t) item.appendChild(el("span", "badge off", `${t.entries || 0}进本 / ${t.claims || 0}领奖 / ${t.echoes || 0}声骸`));
+    if (t) actions.appendChild(el("span", "badge off", `${t.entries || 0}进本 / ${t.claims || 0}领奖 / ${t.echoes || 0}声骸`));
 
+    const btns = el("div", "boss-btns");
     const editBtn = el("button", "btn mini-btn", "✎ 编辑");
     editBtn.type = "button";
     editBtn.onclick = () => { editingBossId = boss.id; render(); };
-    item.appendChild(editBtn);
+    btns.appendChild(editBtn);
 
     const btn = el("button", "btn mini-btn", boss.enabled ? "停用" : "启用");
     btn.type = "button"; btn.onclick = () => toggleBoss(boss.id);
-    item.appendChild(btn);
+    btns.appendChild(btn);
+    actions.appendChild(btns);
+    item.appendChild(actions);
 
     wrap.appendChild(item);
   }
@@ -1610,7 +1655,7 @@ $("#btn-clear").onclick = () => {
 let resizeTimer = 0;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (view === "history") renderChart(); }, 150);
+  resizeTimer = setTimeout(() => { if (view === "history") { renderChart(); initTableScroll(); } }, 150);
 });
 
 /* 调试句柄：仅在 ?debug=1 时暴露，方便本地验证自动同步等内部逻辑 */
