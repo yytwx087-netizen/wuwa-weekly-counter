@@ -7,7 +7,7 @@
 "use strict";
 
 /** 应用版本（与 android/app/build.gradle 的 versionName 保持一致） */
-const APP_VERSION = "3.13.0";
+const APP_VERSION = "3.19.0";
 const BUILD_DATE = "2026-10-18";
 
 const STORAGE_KEY = "wuwa-weekly-counter/v1";   // 键名沿用，结构 version 在数据内
