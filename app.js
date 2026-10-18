@@ -6,6 +6,10 @@
 (() => {
 "use strict";
 
+/** 应用版本（与 android/app/build.gradle 的 versionName 保持一致） */
+const APP_VERSION = "3.13.0";
+const BUILD_DATE = "2026-10-18";
+
 const STORAGE_KEY = "wuwa-weekly-counter/v1";   // 键名沿用，结构 version 在数据内
 const SCHEMA_VERSION = 2;
 const LOG_MAX = 1000;              // log 流水上限（撤销只需要尾部）
@@ -164,10 +168,16 @@ function load() {
   return st;
 }
 
+let dirtyVersion = 0;     // 每次落盘 +1（用于自动上传的"是否已推送"判断）
+let pushedVersion = 0;
+let autoPushTimer = 0;
+
 function save() {
   try {
     state.updatedAt = new Date().toISOString();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    dirtyVersion++;
+    scheduleAutoPush();
   } catch { toast("保存失败：浏览器存储已满或被禁用"); }
 }
 
@@ -564,7 +574,7 @@ function importFile(file) {
 
 /* ────────────────── 云同步：GitHub Gist（私有） ────────────────── */
 
-const SYNC_KEY = "wuwa-weekly-counter/gh";   // {token, gistId}：单独存本机，不随导出/同步外泄
+const SYNC_KEY = "wuwa-weekly-counter/gh";   // {token, gistId, pass}：单独存本机，不随导出/同步外泄
 const GIST_FILE = "wuwa-weekly-counter.json";
 let syncAuth = (() => {
   try { return JSON.parse(localStorage.getItem(SYNC_KEY) || "{}"); } catch { return {}; }
@@ -573,8 +583,12 @@ let syncBusy = false;
 
 function saveSyncAuth() {
   try {
-    localStorage.setItem(SYNC_KEY, JSON.stringify({ token: syncAuth.token || "", gistId: syncAuth.gistId || "" }));
-  } catch { toast("保存 Token 失败：浏览器存储不可用"); }
+    localStorage.setItem(SYNC_KEY, JSON.stringify({
+      token: syncAuth.token || "",
+      gistId: syncAuth.gistId || "",
+      pass: syncAuth.pass || "",
+    }));
+  } catch { toast("保存同步配置失败：浏览器存储不可用"); }
 }
 
 function refreshSyncStatus() {
@@ -582,10 +596,14 @@ function refreshSyncStatus() {
   if (!node) return;
   const t = syncAuth.token ? "Token 已配置" : "未配置 Token";
   const g = syncAuth.gistId ? ` · Gist ${String(syncAuth.gistId).slice(0, 8)}…` : " · 尚无 Gist（上传时自动创建）";
+  const auto = syncAuth.auto ? " · 自动同步：开" : " · 自动同步：关";
+  const enc = syncAuth.pass
+    ? " · 已启用口令加密"
+    : (cryptoAvailable() ? " · 未设口令（明文）" : " · 未设口令（此环境不支持加密）");
   const last = state.settings.lastSyncAt
     ? ` · 上次同步：${new Date(state.settings.lastSyncAt).toLocaleString("zh-CN", { hour12: false })}`
     : " · 上次同步：—";
-  node.textContent = `${t}${g}${last}`;
+  node.textContent = `${t}${g}${enc}${auto}${last}`;
 }
 
 async function ghApi(method, path, body) {
@@ -614,15 +632,93 @@ async function ghApi(method, path, body) {
   return r.json();
 }
 
-function syncPayload() {
-  return { app: "wuwa-weekly-counter", version: SCHEMA_VERSION, ts: new Date().toISOString(), state };
+/* ── 口令加密：Gist 只是"秘密链接"，加密后即便链接泄露也读不到内容 ── */
+const SYNC_KDF_ITERATIONS = 250000; // 手机端约 0.3~0.8s
+
+function bytesToB64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
 }
 
-async function syncUpload() {
-  if (syncBusy) return;
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function cryptoAvailable() {
+  return !!(window.crypto && window.crypto.subtle && window.isSecureContext);
+}
+
+async function deriveSyncKey(pass, salt, iterations) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+  );
+}
+
+/** 上传用的数据体：有口令 → 加密；无口令 → 明文（并提示风险） */
+async function buildSyncPayload() {
+  const ts = new Date().toISOString();
+  const base = { app: "wuwa-weekly-counter", version: SCHEMA_VERSION, ts };
+  if (!syncAuth.pass) return { ...base, state };
+  if (!cryptoAvailable()) throw new Error("当前环境不支持加密（需 https 或 localhost 下打开）");
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveSyncKey(syncAuth.pass, salt, SYNC_KDF_ITERATIONS);
+  const cipher = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(state))
+  );
+  return {
+    ...base,
+    enc: "AES-GCM-256",
+    kdf: { name: "PBKDF2-SHA256", iterations: SYNC_KDF_ITERATIONS, salt: bytesToB64(salt) },
+    iv: bytesToB64(iv),
+    data: bytesToB64(new Uint8Array(cipher)),
+  };
+}
+
+/** 解密云端数据体；返回 { ts, state } */
+async function decryptSyncPayload(p) {
+  if (!syncAuth.pass) throw new Error("云端数据已加密，请先在「同步口令」填入口令");
+  if (!cryptoAvailable()) throw new Error("当前环境不支持解密（需 https 或 localhost 下打开）");
+  if (!p.kdf || !p.kdf.salt || !p.iv || !p.data) throw new Error("加密数据缺少必要字段");
+  const key = await deriveSyncKey(syncAuth.pass, b64ToBytes(p.kdf.salt),
+    p.kdf.iterations || SYNC_KDF_ITERATIONS);
+  let buf;
+  try {
+    buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64ToBytes(p.iv) }, key, b64ToBytes(p.data));
+  } catch {
+    throw new Error("口令错误，或云端数据已损坏");
+  }
+  const st = JSON.parse(new TextDecoder().decode(buf));
+  if (!st || !Array.isArray(st.bosses)) throw new Error("解密后的数据格式不对");
+  return { ts: p.ts, state: st };
+}
+
+async function syncUpload(quiet = false) {
+  if (syncBusy) return false;
   syncBusy = true;
   try {
-    const files = { [GIST_FILE]: { content: JSON.stringify(syncPayload()) } };
+    // 云端已加密而本机未设口令 → 拒绝覆盖，避免把密文冲成明文
+    if (syncAuth.gistId && !syncAuth.pass) {
+      try {
+        const meta = await ghApi("GET", "/gists/" + syncAuth.gistId);
+        const f = meta.files && meta.files[GIST_FILE];
+        if (f && f.content) {
+          const j = JSON.parse(f.content);
+          if (j && j.enc) throw new Error("云端数据已加密，本机未设置同步口令，已取消上传（避免覆盖密文）");
+        }
+      } catch (e) {
+        if (String(e && e.message || "").includes("已加密")) throw e;
+        // 其他情况（首次上传/网络抖动）忽略，继续上传
+      }
+    }
+    const payload = await buildSyncPayload();
+    const files = { [GIST_FILE]: { content: JSON.stringify(payload) } };
     if (!syncAuth.gistId) {
       const created = await ghApi("POST", "/gists", {
         description: "wuwa-weekly-counter 数据（私有备份）",
@@ -638,9 +734,13 @@ async function syncUpload() {
     }
     state.settings.lastSyncAt = new Date().toISOString();
     save(); render(); refreshSyncStatus();
-    toast("已上传到云端");
+    pushedVersion = dirtyVersion;   // 避免自动上传自触发死循环
+    if (!quiet) toast(syncAuth.pass ? "已加密上传到云端" : "已上传到云端（明文）");
+    return true;
   } catch (e) {
-    toast("上传失败：" + e.message);
+    if (!quiet) toast("上传失败：" + e.message);
+    else if (/加密|口令|Token|401/.test(String(e.message))) toast("自动同步失败：" + e.message);
+    return false;
   } finally { syncBusy = false; }
 }
 
@@ -658,7 +758,8 @@ async function fetchRemote() {
     if (!raw.ok) throw new Error("云端数据过大且无法读取原始文件，请改用「导出/导入 JSON」");
     text = await raw.text();
   }
-  const p = JSON.parse(text);
+  let p = JSON.parse(text);
+  if (p && p.enc) p = await decryptSyncPayload(p);
   if (!p || !p.state || !Array.isArray(p.state.bosses)) throw new Error("云端数据格式不对");
   return p;
 }
@@ -722,6 +823,37 @@ function mergeRemoteState(remoteState) {
   }
   state.settings.lastSyncAt = new Date().toISOString();
   save(); render(); refreshSyncStatus();
+}
+
+/* ───────────────── 自动同步：打开时拉取 + 计数后防抖上传 ───────────────── */
+
+function scheduleAutoPush() {
+  if (autoPushTimer) { clearTimeout(autoPushTimer); autoPushTimer = 0; }
+  if (typeof syncAuth === "undefined" || !syncAuth || !syncAuth.auto) return;
+  if (!syncAuth.token) return;   // 未建 Gist 也允许：首次自动上传会创建
+  autoPushTimer = setTimeout(() => { autoPushTimer = 0; autoPush(); }, 4000);
+}
+
+async function autoPush() {
+  if (!syncAuth.auto || !syncAuth.token || syncBusy) return;
+  if (pushedVersion >= dirtyVersion) return;
+  const startedAt = dirtyVersion;
+  const ok = await syncUpload(true);
+  if (ok) pushedVersion = startedAt;
+}
+
+/** 打开时从云端合并（保守 max 合并，不会覆盖本机更新的计数） */
+async function autoPullOnStartup() {
+  if (!syncAuth.auto || !syncAuth.token || !syncAuth.gistId) return;
+  try {
+    const before = JSON.stringify({ w: state.weeks, t: state.totals });
+    const remote = await fetchRemote();
+    mergeRemoteState(remote.state);
+    const after = JSON.stringify({ w: state.weeks, t: state.totals });
+    if (before !== after) toast("已从云端合并最新数据");
+  } catch (e) {
+    // 离线 / 口令未填 / 云端无数据：静默跳过，不影响本地使用
+  }
 }
 
 async function syncMerge() {
@@ -1356,15 +1488,19 @@ function toast(msg) {
 
 /* ───────────────────────── 事件绑定 ───────────────────────── */
 
+/* ───────────── 标签页切换（点击与 Android 返回键共用） ───────────── */
+
+function switchView(name) {
+  view = name;
+  if (view !== "week" && editMode) { editMode = false; }
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === view));
+  document.querySelectorAll(".view").forEach(v => { v.hidden = v.id !== `view-${view}`; });
+  render();
+  window.scrollTo({ top: 0 });
+}
+
 for (const tab of document.querySelectorAll(".tab")) {
-  tab.onclick = () => {
-    view = tab.dataset.view;
-    if (view !== "week" && editMode) { editMode = false; }
-    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === tab));
-    document.querySelectorAll(".view").forEach(v => { v.hidden = v.id !== `view-${view}`; });
-    render();
-    window.scrollTo({ top: 0 });
-  };
+  tab.onclick = () => switchView(tab.dataset.view);
 }
 
 $("#btn-undo").onclick = undo;
@@ -1433,6 +1569,16 @@ $("#set-limit").onchange = e => {
 // 云同步 · GitHub Gist
 $("#sync-token").value = syncAuth.token || "";
 $("#sync-gist").value = syncAuth.gistId || "";
+$("#sync-pass").value = syncAuth.pass || "";
+$("#sync-pass").onchange = e => {
+  syncAuth.pass = e.target.value; saveSyncAuth(); refreshSyncStatus();
+  if (syncAuth.pass) toast("已启用口令加密：下次上传将加密");
+};
+$("#sync-auto").checked = !!syncAuth.auto;
+$("#sync-auto").onchange = e => {
+  syncAuth.auto = !!e.target.checked; saveSyncAuth(); refreshSyncStatus();
+  toast(syncAuth.auto ? "已开启自动同步" : "已关闭自动同步");
+};
 $("#sync-token").onchange = e => {
   syncAuth.token = e.target.value.trim(); saveSyncAuth(); refreshSyncStatus();
 };
@@ -1467,11 +1613,55 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(() => { if (view === "history") renderChart(); }, 150);
 });
 
+/* 调试句柄：仅在 ?debug=1 时暴露，方便本地验证自动同步等内部逻辑 */
+if (new URLSearchParams(location.search).get("debug") === "1") {
+  window.__wwc = { autoPullOnStartup, mergeRemoteState, fetchRemote, syncUpload, getAuth: () => ({ hasToken: !!syncAuth.token, gistId: syncAuth.gistId || "", auto: !!syncAuth.auto, hasPass: !!syncAuth.pass }), setAuto: v => { syncAuth.auto = v; } };
+}
+/* ───────────── Android 客户端适配（仅 Capacitor 环境生效，网页版零影响） ───────────── */
+
+const NATIVE_PLUGINS = (window.Capacitor
+  && typeof window.Capacitor.isNativePlatform === "function"
+  && window.Capacitor.isNativePlatform()
+  && window.Capacitor.Plugins) || null;
+
+if (NATIVE_PLUGINS) {
+  document.documentElement.classList.add("native");
+
+  // 状态栏：深色背景 + 浅色图标
+  if (NATIVE_PLUGINS.StatusBar) {
+    NATIVE_PLUGINS.StatusBar.setStyle({ style: "DARK" }).catch(() => {});
+    NATIVE_PLUGINS.StatusBar.setBackgroundColor({ color: "#14161d" }).catch(() => {});
+  }
+
+  // 返回键：编辑模式 → 退编辑；非本周页 → 回本周；否则最小化（不直接退出，避免误杀）
+  const appPlugin = NATIVE_PLUGINS.App;
+  if (appPlugin && appPlugin.addListener) {
+    appPlugin.addListener("backButton", () => {
+      if (editMode) { editMode = false; render(); return; }
+      if (view !== "week") { switchView("week"); return; }
+      if (appPlugin.minimizeApp) appPlugin.minimizeApp();
+    });
+  }
+
+  // 启动闪屏：首帧渲染后隐藏
+  if (NATIVE_PLUGINS.SplashScreen) {
+    setTimeout(() => NATIVE_PLUGINS.SplashScreen.hide().catch(() => {}), 250);
+  }
+}
+
+// 关于页：显示版本与运行形态（网页版 / Android 客户端）
+(function fillAboutVersion() {
+  const node = document.getElementById("about-version");
+  if (!node) return;
+  const native = document.documentElement.classList.contains("native");
+  node.textContent = `v${APP_VERSION}（${BUILD_DATE}）· ${native ? "Android 客户端" : "网页版"}`;
+})();
 /* ───────────────────────── 启动 ───────────────────────── */
 
 render();
 refreshNewIconPreview();          // 表单图标预览初始态（🎯）
 loadIconManifest();               // 拉取内置图标清单（异步，到位后自动重绘）
+autoPullOnStartup();              // 自动同步：打开即从云端合并（未开启则立即返回）
 
 // 每分钟刷新倒计时/周界（跨过重置点时自动滚周）；编辑模式下不重建卡片，避免打断输入
 setInterval(() => {
